@@ -46,7 +46,11 @@ def _decision_emoji(decision: str) -> str:
 
 def _emit_react_steps(steps: List[str], sink: List[str]) -> None:
     for step in steps:
-        print(step)
+        try:
+            print(step)
+        except UnicodeEncodeError:
+            # Windows terminals can fail on certain Unicode place names.
+            print(step.encode("ascii", "backslashreplace").decode("ascii"))
         sink.append(step)
 
 
