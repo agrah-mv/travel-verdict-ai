@@ -40,25 +40,25 @@ Travel Verdict AI is a multi-agent Streamlit app that helps users decide whether
 
 ```mermaid
 flowchart TD
-    U[User Input in Streamlit] --> C[ContextAgent]
-    C --> LP[Location Parser Tool]
-    C --> DP[Date Parser Tool]
-    C --> G1[Geocoding Validation]
+    U["User Input in Streamlit"] --> C["ContextAgent"]
+    C --> LP["Location Parser Tool"]
+    C --> DP["Date Parser Tool"]
+    C --> G1["Geocoding Validation"]
 
-    C --> W[WeatherAgent]
-    W --> G2[Geocoding Tool]
-    W --> WT[Weather Tool]
+    C --> W["WeatherAgent"]
+    W --> G2["Geocoding Tool"]
+    W --> WT["Weather Tool"]
 
-    U --> DTool[Distance Tool (optional Starting City)]
-    DTool --> DE[DecisionAgent]
+    U --> DTool["Distance Tool - optional starting city"]
+    DTool --> DE["DecisionAgent"]
 
     W --> DE
     C --> DE
-    M[(FAISS Memory)] --> DE
+    M["FAISS Memory"] --> DE
     DE --> M
 
-    DE --> O[Decision + Reason + Suggestion + Transport]
-    O --> UI[Streamlit UI Sections + ReAct Trace]
+    DE --> O["Decision, Reason, Suggestion, Transport"]
+    O --> UI["Streamlit UI sections and ReAct trace"]
 ```
 
 ## Project Structure
