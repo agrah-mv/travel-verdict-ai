@@ -24,6 +24,43 @@ Travel Verdict AI is a multi-agent Streamlit app that helps users decide whether
   - Optional starting city
   - Distance is estimated and used in transport recommendation
 
+## Tech Stack
+
+- **Language:** Python 3.11+
+- **App Framework / UI:** Streamlit
+- **LLM Provider:** Groq (`llama-3.3-70b-versatile`)
+- **Agent Architecture:** Custom modular multi-agent design (`ContextAgent`, `WeatherAgent`, `DecisionAgent`)
+- **External APIs:** Open-Meteo Geocoding API, Open-Meteo Forecast API
+- **Memory Layer:** FAISS (`faiss-cpu`) with local metadata persistence (JSON)
+- **Date Understanding:** `dateparser`
+- **HTTP Client:** `requests`
+- **Environment Management:** `python-dotenv` (`.env`)
+
+## Architecture Diagram
+
+```mermaid
+flowchart TD
+    U[User Input in Streamlit] --> C[ContextAgent]
+    C --> LP[Location Parser Tool]
+    C --> DP[Date Parser Tool]
+    C --> G1[Geocoding Validation]
+
+    C --> W[WeatherAgent]
+    W --> G2[Geocoding Tool]
+    W --> WT[Weather Tool]
+
+    U --> DTool[Distance Tool (optional Starting City)]
+    DTool --> DE[DecisionAgent]
+
+    W --> DE
+    C --> DE
+    M[(FAISS Memory)] --> DE
+    DE --> M
+
+    DE --> O[Decision + Reason + Suggestion + Transport]
+    O --> UI[Streamlit UI Sections + ReAct Trace]
+```
+
 ## Project Structure
 
 ```text
