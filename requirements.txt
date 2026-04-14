@@ -1,0 +1,8 @@
+streamlit
+requests
+python-dateutil
+dateparser
+faiss-cpu
+numpy
+groq
+python-dotenv

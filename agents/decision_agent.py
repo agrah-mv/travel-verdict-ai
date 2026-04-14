@@ -1,0 +1,180 @@
+"""DecisionAgent combines context, weather, and memory to recommend travel."""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Dict, List
+
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+
+class DecisionAgent:
+    """LLM-backed decision maker with fallback scoring logic."""
+
+    def __init__(self, model_name: str = "llama-3.3-70b-versatile") -> None:
+        self.model_name = model_name
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "")
+
+    def _fallback_decision(self, weather_summary: Dict) -> Dict:
+        rain = weather_summary.get("max_rain_probability") or 0
+        temp = weather_summary.get("avg_temp_c") or 25
+        wind = weather_summary.get("max_wind_kmh") or 10
+
+        if rain >= 70 or wind >= 40:
+            return {
+                "decision": "Avoid",
+                "reason": f"High weather risk (rain={rain}%, wind={wind} km/h).",
+                "suggestion": "Try another date or plan indoor activities.",
+            }
+        if 40 <= rain < 70:
+            return {
+                "decision": "Maybe",
+                "reason": f"Mixed weather outlook with rain around {rain}%.",
+                "suggestion": "Carry rain gear and keep a backup plan.",
+            }
+        if temp < 8:
+            return {
+                "decision": "Maybe",
+                "reason": f"Low average temperature ({temp} C) could be uncomfortable.",
+                "suggestion": "Pack warm layers or consider a warmer destination.",
+            }
+        return {
+            "decision": "Go",
+            "reason": f"Weather is generally suitable (rain={rain}%, avg temp={temp} C).",
+            "suggestion": "Great time to travel. Proceed with your trip plan.",
+        }
+
+    def _fallback_transport(self, weather_summary: Dict, distance_km: float | None = None) -> Dict:
+        rain = weather_summary.get("max_rain_probability") or 0
+        wind = weather_summary.get("max_wind_kmh") or 0
+        trip_band = "unknown"
+        if distance_km is not None:
+            if distance_km >= 700:
+                trip_band = "long"
+            elif distance_km >= 250:
+                trip_band = "medium"
+            else:
+                trip_band = "short"
+
+        if rain >= 70:
+            if trip_band == "long":
+                return {
+                    "transport_mode": "Flight + Cab",
+                    "transport_reason": "Long-distance travel with heavy rain is best handled by enclosed, time-saving transport.",
+                }
+            return {
+                "transport_mode": "Train or Flight + Cab",
+                "transport_reason": "High rain risk makes enclosed and reliable transport safer than two-wheelers.",
+            }
+        if wind >= 40:
+            return {
+                "transport_mode": "Train",
+                "transport_reason": "Strong wind conditions can make road travel less comfortable.",
+            }
+        if 40 <= rain < 70:
+            if trip_band == "short":
+                return {
+                    "transport_mode": "Car",
+                    "transport_reason": "For shorter trips in moderate rain, a car offers weather protection and flexibility.",
+                }
+            return {
+                "transport_mode": "Car or Train",
+                "transport_reason": "Moderate rain favors flexible, covered transport options.",
+            }
+        if trip_band == "long":
+            return {
+                "transport_mode": "Flight or Overnight Train",
+                "transport_reason": "Long-distance travel is usually more time-efficient with air or rail transport.",
+            }
+        if trip_band == "medium":
+            return {
+                "transport_mode": "Train or Car",
+                "transport_reason": "Medium-distance routes are comfortable and practical by train or car.",
+            }
+        return {
+            "transport_mode": "Bus/Car/Bike (Based on budget)",
+            "transport_reason": "Weather is generally favorable for most transport choices.",
+        }
+
+    def decide(
+        self,
+        destination: str,
+        date_context: Dict,
+        weather_data: Dict,
+        retrieved_memory: List[Dict],
+        preference_note: str = "",
+        distance_km: float | None = None,
+    ) -> Dict:
+        react_steps: List[str] = []
+        react_steps.append("Thought: Analyze weather + intent + memory to make decision.")
+
+        weather_summary = weather_data.get("summary", {})
+        memory_context = json.dumps(retrieved_memory, indent=2) if retrieved_memory else "[]"
+
+        if not self.groq_api_key:
+            react_steps.append("Observation: GROQ_API_KEY not set, using deterministic fallback.")
+            final = self._fallback_decision(weather_summary)
+            transport = self._fallback_transport(weather_summary, distance_km=distance_km)
+            final.update(transport)
+            final["react_steps"] = react_steps + ["Final Answer: Generated by fallback decision logic."]
+            return final
+
+        react_steps.append("Action: Call Groq LLM for travel decision")
+        client = Groq(api_key=self.groq_api_key)
+
+        prompt = f"""
+You are DecisionAgent in a travel decision system.
+Return STRICT JSON only with keys: decision, reason, suggestion, transport_mode, transport_reason.
+Decision must be exactly one of: Go, Avoid, Maybe.
+
+Destination: {destination}
+Date Context: {json.dumps(date_context)}
+Weather Summary: {json.dumps(weather_summary)}
+Retrieved Past Memory: {memory_context}
+User Preference Note: {preference_note}
+Estimated Distance (km): {distance_km if distance_km is not None else "Unknown"}
+
+Guidelines:
+- Prefer Avoid when rain probability is very high or dangerous weather appears.
+- Prefer Maybe if mixed/uncertain.
+- Prefer Go when conditions are generally suitable.
+- Use memory patterns when relevant.
+- Keep reason concise and practical.
+- Recommend one practical transport mode based on weather risk and comfort.
+- If distance is long, prefer flight/train over bike/bus.
+"""
+
+        response = client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=250,
+            response_format={"type": "json_object"},
+        )
+
+        content = response.choices[0].message.content
+        parsed = json.loads(content)
+        decision = parsed.get("decision", "Maybe")
+        if decision not in {"Go", "Avoid", "Maybe"}:
+            decision = "Maybe"
+        transport_mode = parsed.get("transport_mode")
+        transport_reason = parsed.get("transport_reason")
+        if not transport_mode or not transport_reason:
+            transport = self._fallback_transport(weather_summary, distance_km=distance_km)
+            transport_mode = transport["transport_mode"]
+            transport_reason = transport["transport_reason"]
+
+        react_steps.append("Observation: LLM decision generated successfully.")
+        react_steps.append("Final Answer: Decision completed by DecisionAgent.")
+        return {
+            "decision": decision,
+            "reason": parsed.get("reason", "No reason provided."),
+            "suggestion": parsed.get("suggestion", "No suggestion provided."),
+            "transport_mode": transport_mode,
+            "transport_reason": transport_reason,
+            "react_steps": react_steps,
+        }
